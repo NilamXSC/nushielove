@@ -308,65 +308,23 @@ export default function Scene2Rose({ onComplete }: Scene2RoseProps) {
       drawRose(w * 0.88, h * 0.25, sideScale * 0.5, sideBloom * 0.6, false);
       ctx.restore();
 
-      // Flower garden — dense foreground rows near bottom
-      const bloomBg = bloomProgressRef.current * 0.85;
-
-      const drawGardenRow = (baseY: number, count: number, seed: number) => {
-        for (let i = 0; i < count; i++) {
-          const ratio = i / Math.max(1, count - 1);
-          const jitter = (((i + seed * 97) % 13) / 1400) * w;
-          const x = w * (0.02 + ratio * 0.96) + jitter;
-          const waveY = Math.sin(frameRef.current * 0.015 + i + seed) * (4 + seed);
-          const y = baseY + (i % 4) * 7 + waveY;
-
-          const mode = (i + seed) % 3;
+      // Flower garden line near bottom
+      for (let i = 0; i < 13; i++) {
+        const ratio = i / 12;
+        const x = w * (0.04 + ratio * 0.92);
+        const waveY = Math.sin(frameRef.current * 0.015 + i) * 5;
+        const y = h * (0.78 + (i % 3) * 0.045) + waveY;
+        if (i % 2 === 0) {
           ctx.save();
-          if (mode === 0) {
-            ctx.globalAlpha = 0.58 + bloomBg * 0.12;
-            drawRoseBud(x, y, 0.36 + ((i + seed * 11) % 5) * 0.065, Math.sin(frameRef.current * 0.03 + i));
-          } else if (mode === 1) {
-            ctx.globalAlpha = 0.42 + bloomBg * 0.08;
-            drawRose(x, y, 0.22 + ((i + seed * 17) % 4) * 0.048, 0.55 + sideBloom * 0.35 + bloomBg * 0.08, true);
-          } else {
-            ctx.globalAlpha = 0.36 + bloomBg * 0.06;
-            drawRose(x + (i % 2 === 0 ? -10 : 10), y + 4, 0.18 + ((i + seed * 31) % 3) * 0.038, 0.45 + sideBloom * 0.25 + bloomBg * 0.1, (i + seed) % 5 < 3);
-          }
+          ctx.globalAlpha = 0.62;
+          drawRoseBud(x, y, 0.4 + (i % 4) * 0.06, Math.sin(frameRef.current * 0.03 + i));
+          ctx.restore();
+        } else {
+          ctx.save();
+          ctx.globalAlpha = 0.45;
+          drawRose(x, y, 0.26 + (i % 3) * 0.05, 0.6 + sideBloom * 0.3, true);
           ctx.restore();
         }
-      };
-
-      drawGardenRow(h * 0.74, 24, 0);
-      drawGardenRow(h * 0.795, 22, 2);
-      drawGardenRow(h * 0.84, 20, 4);
-
-      // Mid-depth bushes — fuller “walls” on both sides behind main rose
-      for (let g = 0; g < 16; g++) {
-        const t = g / 15;
-        const xL = w * (0.04 + Math.sin(frameRef.current * 0.012 + g) * 0.035);
-        const xR = w * (0.96 - Math.sin(frameRef.current * 0.011 + g * 0.95) * 0.038);
-        const y = h * (0.32 + t * t * 0.38);
-
-        ctx.save();
-        ctx.globalAlpha = 0.22 + bloomBg * 0.08;
-        drawRose(xL, y, 0.2 + (g % 3) * 0.04, 0.52 + bloomBg + sideBloom * 0.2, false);
-        ctx.restore();
-
-        ctx.save();
-        ctx.globalAlpha = 0.22 + bloomBg * 0.08;
-        drawRose(xR, y, 0.2 + (g % 4) * 0.035, 0.52 + bloomBg + sideBloom * 0.2, false);
-        ctx.restore();
-      }
-
-      // Extra tiny buds drifting along the horizon
-      for (let k = 0; k < 18; k++) {
-        const ratio = ((k * 239 + 71) % 1000) / 1000;
-        const xh = ratio * w * 0.92 + w * 0.04 + Math.sin(frameRef.current * 0.02 + k) * 8;
-        const yh = h * (0.72 + ratio * ratio * 0.08);
-
-        ctx.save();
-        ctx.globalAlpha = 0.28 + ((k % 5) / 110);
-        drawRoseBud(xh, yh, 0.28 + (k % 3) * 0.05, Math.sin(frameRef.current * 0.028 + k * 0.7));
-        ctx.restore();
       }
 
       updatePetals();
