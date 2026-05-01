@@ -22,7 +22,7 @@ const MEMORIES: Memory[] = [
     id: 0,
     title: '7th April Movie Date',
     subtitle: 'Rocky Grace Approves',
-    text: "AMAZE AMAZE AMAZE — Rocky Grace approves Nushie 😊 ... Nushie, you should know — Nil would let his Astrophage burn just to see your pretty face that he never gets tired of.",
+    text: "AMAZE AMAZE AMAZE — Rocky Grace approves Nushie & Nil😊 ... Nushie, you should know — Nil would let his Astrophage burn just to see your pretty face that he never gets tired of.",
     mood: 'cinema',
     icon: '🎬',
   },
