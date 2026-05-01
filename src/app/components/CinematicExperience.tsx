@@ -18,6 +18,7 @@ export default function CinematicExperience() {
   const [secretUnlocked, setSecretUnlocked] = useState(false);
   const [transitionActive, setTransitionActive] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const candlesBlownMusicStartedRef = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -30,6 +31,24 @@ export default function CinematicExperience() {
     return () => {
       audio.pause();
     };
+  }, []);
+
+  const startMusicAfterCandlesBlown = useCallback(() => {
+    if (candlesBlownMusicStartedRef.current) return;
+    candlesBlownMusicStartedRef.current = true;
+    const audio = audioRef.current;
+    if (!audio) return;
+    audio.play().catch(() => {});
+    setIsMusicPlaying(true);
+    if (audio.volume >= 0.24) return;
+    audio.volume = 0;
+    const fadeIn = setInterval(() => {
+      if (audio.volume < 0.28) {
+        audio.volume = Math.min(0.3, audio.volume + 0.03);
+      } else {
+        clearInterval(fadeIn);
+      }
+    }, 80);
   }, []);
 
   const toggleMusic = useCallback(() => {
@@ -82,7 +101,7 @@ export default function CinematicExperience() {
   }, []);
 
   const scenes = [
-    <Scene1Cake key="cake" onComplete={() => goToScene(1)} />,
+    <Scene1Cake key="cake" onCandlesBlown={startMusicAfterCandlesBlown} onComplete={() => goToScene(1)} />,
     <Scene2Rose key="rose" onComplete={() => goToScene(2)} />,
     <Scene3BirthdayReveal key="reveal" onComplete={() => goToScene(3)} />,
     <Scene4TreeOfLove key="tree" onComplete={() => goToScene(4)} />,
