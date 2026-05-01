@@ -1,9 +1,12 @@
 'use client';
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
+import * as THREE from 'three';
 
 interface Scene1CakeProps {
   onComplete: () => void;
+  /** Fires when candles are fully blown out — use to start ambient music etc. */
+  onCandlesBlown?: () => void;
 }
 
 interface Candle {
@@ -38,11 +41,20 @@ interface Confetti {
   maxLife: number;
 }
 
-const CANDLE_COLORS = ['#ff6b9d', '#ffd700', '#e8a0bf', '#c2185b', '#ff9a56'];
+const CANDLE_HEX = [0xff6b9d, 0xffd700, 0xe8a0bf];
 const CONFETTI_COLORS = ['#ffd700', '#ff6b9d', '#e8a0bf', '#c2185b', '#ffffff', '#ff9a56', '#a8edea'];
 
-export default function Scene1Cake({ onComplete }: Scene1CakeProps) {
+export default function Scene1Cake({ onComplete, onCandlesBlown }: Scene1CakeProps) {
+  const threeMountRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  const sceneRef = useRef<THREE.Scene | null>(null);
+  const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
+  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
+  const cakePivotRef = useRef<THREE.Group | null>(null);
+  const flamesRef = useRef<THREE.Group[]>([]);
+  const pointLightsRef = useRef<THREE.PointLight[]>([]);
+
   const candlesRef = useRef<Candle[]>([]);
   const confettiRef = useRef<Confetti[]>([]);
   const rafRef = useRef<number>(0);
@@ -60,266 +72,241 @@ export default function Scene1Cake({ onComplete }: Scene1CakeProps) {
   const extinguishingRef = useRef(false);
   const frameRef = useRef(0);
   const sfxCtxRef = useRef<AudioContext | null>(null);
+  const disposedRef = useRef(false);
 
   const CANDLE_COUNT = 3;
 
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+    const mount = threeMountRef.current;
+    const overlay = canvasRef.current;
+    if (!mount || !overlay) return;
 
-    const resize = () => {
-      canvas.width = canvas.offsetWidth * window.devicePixelRatio;
-      canvas.height = canvas.offsetHeight * window.devicePixelRatio;
-      ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
-    };
-    resize();
-    window.addEventListener('resize', resize);
+    disposedRef.current = false;
 
-    // Init candles
-    const initCandles = () => {
-      const w = canvas.offsetWidth;
-      const h = canvas.offsetHeight;
-      const cakeTopY = h * 0.64 - 96 - 56;
-      const topW = Math.min(w * 0.7, 430) * 0.62;
-      const startX = w / 2 - topW / 2 + topW / (CANDLE_COUNT + 1);
-      const spacing = topW / (CANDLE_COUNT + 1);
+    candlesRef.current = Array.from({ length: CANDLE_COUNT }, () => ({
+      x: 0,
+      y: 0,
+      lit: true,
+      extinguishing: false,
+      smokeParticles: [],
+    }));
 
-      candlesRef.current = Array.from({ length: CANDLE_COUNT }, (_, i) => ({
-        x: startX + i * spacing,
-        y: cakeTopY + 10,
-        lit: true,
-        extinguishing: false,
-        smokeParticles: [],
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x0f0010);
+    sceneRef.current = scene;
+
+    const camera = new THREE.PerspectiveCamera(42, mount.clientWidth / Math.max(mount.clientHeight, 1), 0.1, 100);
+    camera.position.set(0, 1.85, 5.85);
+    camera.lookAt(0, 1.95, 0);
+    cameraRef.current = camera;
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(mount.clientWidth, mount.clientHeight);
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    mount.appendChild(renderer.domElement);
+    rendererRef.current = renderer;
+
+    scene.add(new THREE.AmbientLight(0xfff0f8, 0.35));
+
+    const key = new THREE.DirectionalLight(0xffcce0, 0.85);
+    key.position.set(-3.8, 6.8, 4.8);
+    key.castShadow = true;
+    key.shadow.mapSize.set(1024, 1024);
+    key.shadow.bias = -0.00035;
+    scene.add(key);
+
+    const fill = new THREE.DirectionalLight(0x8844aa, 0.42);
+    fill.position.set(4.8, 2.5, -2);
+    scene.add(fill);
+
+    const rim = new THREE.DirectionalLight(0xffdda0, 0.28);
+    rim.position.set(0.5, -1.2, -4);
+    scene.add(rim);
+
+    const cakePivot = new THREE.Group();
+    cakePivot.position.set(0, 0.35, 0);
+    cakePivotRef.current = cakePivot;
+    scene.add(cakePivot);
+
+    const chocolate = (hex: number) =>
+      new THREE.MeshStandardMaterial({
+        color: hex,
+        roughness: 0.38,
+        metalness: 0.08,
+      });
+
+    const icingMat = () =>
+      new THREE.MeshStandardMaterial({
+        color: 0xe86a52,
+        roughness: 0.34,
+        metalness: 0.12,
+        emissive: 0x3a1610,
+        emissiveIntensity: 0.12,
+      });
+
+    const plate = new THREE.Mesh(
+      new THREE.CylinderGeometry(1.58, 1.72, 0.13, 64),
+      new THREE.MeshStandardMaterial({ color: 0x1a0814, roughness: 0.62, metalness: 0.22 }),
+    );
+    plate.position.y = 0.94;
+    plate.receiveShadow = true;
+    plate.castShadow = true;
+    cakePivot.add(plate);
+
+    const baseTier = new THREE.Mesh(new THREE.CylinderGeometry(1.14, 1.22, 0.62, 64), chocolate(0x3a1625));
+    baseTier.position.y = 1.34;
+    baseTier.castShadow = true;
+    baseTier.receiveShadow = true;
+    cakePivot.add(baseTier);
+
+    const baseIcing = new THREE.Mesh(new THREE.CylinderGeometry(1.26, 1.26, 0.065, 64), icingMat());
+    baseIcing.position.y = 1.68;
+    baseIcing.castShadow = false;
+    cakePivot.add(baseIcing);
+
+    const topTier = new THREE.Mesh(new THREE.CylinderGeometry(0.74, 0.78, 0.38, 48), chocolate(0x4a1730));
+    topTier.position.y = 2.06;
+    topTier.castShadow = true;
+    topTier.receiveShadow = true;
+    cakePivot.add(topTier);
+
+    const topIcing = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 0.8, 0.046, 48), icingMat());
+    topIcing.position.y = 2.28;
+    cakePivot.add(topIcing);
+
+    const cherry = new THREE.Mesh(
+      new THREE.SphereGeometry(0.1, 20, 20),
+      new THREE.MeshStandardMaterial({ color: 0xc4123a, roughness: 0.22, metalness: 0.18 }),
+    );
+    cherry.position.set(0, 2.4, 0);
+    cherry.castShadow = true;
+    cakePivot.add(cherry);
+
+    const flameMeshes: THREE.Group[] = [];
+    const plights: THREE.PointLight[] = [];
+
+    const candleStemGeom = new THREE.CylinderGeometry(0.036, 0.042, 0.11, 16);
+    for (let i = 0; i < CANDLE_COUNT; i++) {
+      const a = (-Math.PI / 8 + (Math.PI * 2 * i) / CANDLE_COUNT) as number;
+      const r = 0.36;
+      const cx = Math.cos(a) * r;
+      const cz = Math.sin(a) * r;
+
+      const stem = new THREE.Mesh(candleStemGeom, new THREE.MeshStandardMaterial({
+        color: CANDLE_HEX[i % CANDLE_HEX.length],
+        roughness: 0.45,
+        metalness: 0.06,
       }));
-    };
-    initCandles();
+      stem.position.set(cx, 2.355, cz);
+      stem.castShadow = true;
+      cakePivot.add(stem);
 
-    const drawCake = (lightT: number) => {
-      const lightBias = lightT - 0.5;
-      const w2 = canvas.offsetWidth;
-      const h2 = canvas.offsetHeight;
-      const cx = w2 / 2;
-      const cy = h2 * 0.64;
-      const baseW = Math.min(w2 * 0.7, 430);
-      const baseH = 96;
-      const upperW = baseW * 0.62;
-      const upperH = 56;
-      const baseTop = cy - baseH * 0.35;
-      const upperTop = baseTop - upperH + 4;
+      const flameGroup = new THREE.Group();
+      flameGroup.position.set(cx, 2.46, cz);
 
-      // Ambient glow — bigger
-      const ambGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, baseW * 1.1);
-      ambGrad.addColorStop(0, 'rgba(232,160,191,0.14)');
-      ambGrad.addColorStop(0.5, 'rgba(194,24,91,0.06)');
-      ambGrad.addColorStop(1, 'rgba(10,0,8,0)');
-      ctx.fillStyle = ambGrad;
-      ctx.beginPath();
-      ctx.ellipse(cx, cy, baseW * 0.95, baseW * 0.5, 0, 0, Math.PI * 2);
-      ctx.fill();
+      const outer = new THREE.Mesh(
+        new THREE.ConeGeometry(0.055, 0.16, 12, 1, false),
+        new THREE.MeshStandardMaterial({
+          color: 0xff7200,
+          emissive: 0xffab30,
+          emissiveIntensity: 1.85,
+          roughness: 0.42,
+          transparent: true,
+          opacity: 0.96,
+        }),
+      );
+      outer.position.y = 0.05;
+      outer.rotation.x = Math.PI;
+      flameGroup.add(outer);
 
-      // Base plate shadow
-      const shadowGrad = ctx.createRadialGradient(cx, cy + 72, 0, cx, cy + 72, baseW * 0.7);
-      shadowGrad.addColorStop(0, 'rgba(0,0,0,0.65)');
-      shadowGrad.addColorStop(1, 'rgba(0,0,0,0)');
-      ctx.fillStyle = shadowGrad;
-      ctx.beginPath();
-      ctx.ellipse(cx, cy + 72, baseW * 0.7, 44, 0, 0, Math.PI * 2);
-      ctx.fill();
+      const inner = new THREE.Mesh(
+        new THREE.ConeGeometry(0.026, 0.09, 10, 1, false),
+        new THREE.MeshStandardMaterial({
+          color: 0xffee88,
+          emissive: 0xffeeb0,
+          emissiveIntensity: 2.45,
+          roughness: 0.38,
+          transparent: true,
+          opacity: 0.98,
+        }),
+      );
+      inner.position.y = 0.08;
+      inner.rotation.x = Math.PI;
+      flameGroup.add(inner);
 
-      // Bottom platform ring
-      const platformGrad = ctx.createLinearGradient(cx - baseW * 0.68, cy + 46, cx + baseW * 0.68, cy + 78);
-      platformGrad.addColorStop(0, '#13030f');
-      platformGrad.addColorStop(0.5, '#2b071f');
-      platformGrad.addColorStop(1, '#10020b');
-      ctx.fillStyle = platformGrad;
-      ctx.beginPath();
-      ctx.ellipse(cx, cy + 58, baseW * 0.7, 54, 0, 0, Math.PI * 2);
-      ctx.fill();
+      const pl = new THREE.PointLight(0xffaa44, 0.55, 0.65, 1.85);
+      pl.position.set(0, 0.1, 0);
+      flameGroup.add(pl);
 
-      // Main lower cake body
-      const baseBodyGrad = ctx.createLinearGradient(cx - baseW / 2, baseTop, cx + baseW / 2, baseTop + baseH);
-      baseBodyGrad.addColorStop(0, '#300312');
-      baseBodyGrad.addColorStop(0.5, '#170108');
-      baseBodyGrad.addColorStop(1, '#2a030f');
-      ctx.fillStyle = baseBodyGrad;
-      ctx.beginPath();
-      ctx.roundRect(cx - baseW / 2, baseTop, baseW, baseH, [18, 18, 12, 12]);
-      ctx.fill();
-      // Side depth / 3D edge
-      ctx.fillStyle = `rgba(${20 + lightT * 50}, ${4 + lightT * 20}, ${14 + lightT * 40}, 0.55)`;
-      ctx.fillRect(cx + baseW / 2 - 10, baseTop + 14, 8, baseH - 26);
+      flameMeshes.push(flameGroup);
+      plights.push(pl);
+      cakePivot.add(flameGroup);
+    }
 
-      // Lower cake top rim
-      const lowerRimGrad = ctx.createLinearGradient(cx - baseW / 2, baseTop - 14, cx + baseW / 2, baseTop + 12);
-      lowerRimGrad.addColorStop(0, '#ff9a56');
-      lowerRimGrad.addColorStop(0.5, '#d55d30');
-      lowerRimGrad.addColorStop(1, '#a23524');
-      ctx.fillStyle = lowerRimGrad;
-      ctx.beginPath();
-      ctx.ellipse(cx, baseTop, baseW * 0.5, 20, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = '#6a1b14';
-      ctx.beginPath();
-      ctx.ellipse(cx, baseTop + 1, baseW * 0.42, 14, 0, 0, Math.PI * 2);
-      ctx.fill();
+    flamesRef.current = flameMeshes;
+    pointLightsRef.current = plights;
 
-      // Upper cake body
-      const upperBodyGrad = ctx.createLinearGradient(cx - upperW / 2, upperTop, cx + upperW / 2, upperTop + upperH);
-      upperBodyGrad.addColorStop(0, '#3a071b');
-      upperBodyGrad.addColorStop(0.5, '#1a010a');
-      upperBodyGrad.addColorStop(1, '#360616');
-      ctx.fillStyle = upperBodyGrad;
-      ctx.beginPath();
-      ctx.roundRect(cx - upperW / 2, upperTop, upperW, upperH, [14, 14, 8, 8]);
-      ctx.fill();
-      ctx.fillStyle = `rgba(${38 + lightT * 55}, ${10 + lightT * 25}, ${22 + lightT * 35}, 0.5)`;
-      ctx.fillRect(cx + upperW / 2 - 8, upperTop + 10, 6, upperH - 18);
+    const pedestal = new THREE.Mesh(
+      new THREE.CylinderGeometry(1.92, 1.92, 0.035, 64),
+      new THREE.MeshStandardMaterial({ color: 0x10060c, roughness: 0.74, metalness: 0.15 }),
+    );
+    pedestal.position.y = 0.84;
+    pedestal.receiveShadow = true;
+    scene.add(pedestal);
 
-      // Upper cake rim + top
-      const upperRimGrad = ctx.createLinearGradient(cx - upperW / 2, upperTop - 10, cx + upperW / 2, upperTop + 8);
-      upperRimGrad.addColorStop(0, '#ffb36b');
-      upperRimGrad.addColorStop(0.5, '#ef6f35');
-      upperRimGrad.addColorStop(1, '#ba4427');
-      ctx.fillStyle = upperRimGrad;
-      ctx.beginPath();
-      ctx.ellipse(cx, upperTop, upperW * 0.5, 16, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = '#ba4a2e';
-      ctx.beginPath();
-      ctx.ellipse(cx, upperTop + 1, upperW * 0.4, 10, 0, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Front highlight ring
-      const plateGrad = ctx.createLinearGradient(cx - baseW * 0.65, cy + 55, cx + baseW * 0.65, cy + 70);
-      plateGrad.addColorStop(0, '#2a1025');
-      plateGrad.addColorStop(0.5, '#3d1535');
-      plateGrad.addColorStop(1, '#1a0815');
-      ctx.fillStyle = plateGrad;
-      ctx.beginPath();
-      ctx.ellipse(cx, cy + 58, baseW * 0.58, 14, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(232,160,191,0.35)';
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-      // Gloss highlight (moves with “rotation”)
-      const glossAlpha = 0.12 + lightT * 0.22;
-      const glossGrad = ctx.createLinearGradient(cx - baseW * 0.4, upperTop - 28, cx + baseW * 0.2, cy + 20);
-      glossGrad.addColorStop(0, `rgba(255,255,255,${glossAlpha})`);
-      glossGrad.addColorStop(0.45, `rgba(255,220,235,${glossAlpha * 0.4})`);
-      glossGrad.addColorStop(1, 'rgba(255,255,255,0)');
-      ctx.fillStyle = glossGrad;
-      ctx.beginPath();
-      ctx.ellipse(cx + lightBias * 36, cy - upperH * 0.55, upperW * 0.52, upperH + baseH * 0.52, lightBias * 0.12, 0, Math.PI * 2);
-      ctx.fill();
+    const resizeThree = () => {
+      const w = mount.clientWidth;
+      const h = Math.max(mount.clientHeight, 1);
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+      renderer.setSize(w, h);
     };
 
-    const drawCandle = (candle: Candle, idx: number, time: number) => {
-      const w2 = canvas.offsetWidth;
-      const h2 = canvas.offsetHeight;
-      const baseW = Math.min(w2 * 0.7, 430);
-      const upperW = baseW * 0.62;
-      const cakeTopY = h2 * 0.64 - 96 - 56;
-      const cX = w2 / 2 - upperW / 2 + upperW / (CANDLE_COUNT + 1) + idx * (upperW / (CANDLE_COUNT + 1));
-      const cY = cakeTopY + 10;
+    const resizeOverlay = () => {
+      const dpr = Math.min(window.devicePixelRatio ?? 1, 2);
+      const w = overlay.offsetWidth;
+      const h = overlay.offsetHeight;
+      overlay.width = w * dpr;
+      overlay.height = h * dpr;
+      const ctx = overlay.getContext('2d');
+      if (ctx) ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    };
 
-      // Candle body — taller
-      const candleH = 32;
-      const candleW = 9;
-      const color = CANDLE_COLORS[idx % CANDLE_COLORS.length];
-      const bodyGrad = ctx.createLinearGradient(cX - candleW, cY - candleH, cX + candleW, cY);
-      bodyGrad.addColorStop(0, color);
-      bodyGrad.addColorStop(0.4, '#ffffff33');
-      bodyGrad.addColorStop(1, color);
-      ctx.fillStyle = bodyGrad;
-      ctx.beginPath();
-      ctx.roundRect(cX - candleW / 2, cY - candleH, candleW, candleH, 4);
-      ctx.fill();
+    resizeThree();
+    resizeOverlay();
+    window.addEventListener('resize', resizeThree);
+    window.addEventListener('resize', resizeOverlay);
 
-      // Wick
-      ctx.strokeStyle = '#333';
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.moveTo(cX, cY - candleH);
-      ctx.lineTo(cX, cY - candleH - 6);
-      ctx.stroke();
+    const overlayCtx = overlay.getContext('2d');
+    if (!overlayCtx) return;
 
-      if (candle.lit) {
-        const flicker = Math.sin(time * 0.015 + idx * 1.3) * 2;
-        const flicker2 = Math.cos(time * 0.022 + idx * 0.9) * 1.5;
-        const flickerScale = 0.85 + Math.sin(time * 0.02 + idx) * 0.15;
+    const drawBackgroundStars = (w: number, h: number) => {
+      overlayCtx.save();
+      const bgGrad = overlayCtx.createRadialGradient(w / 2, h * 0.4, 0, w / 2, h * 0.4, w * 0.85);
+      bgGrad.addColorStop(0, 'rgba(26, 0, 21, 0)');
+      bgGrad.addColorStop(0.45, 'rgba(12, 0, 14, 0)');
+      bgGrad.addColorStop(1, 'rgba(6, 0, 10, 0)');
+      overlayCtx.fillStyle = bgGrad;
+      overlayCtx.fillRect(0, 0, w, h);
 
-        // Flame glow
-        const glowGrad = ctx.createRadialGradient(cX, cY - candleH - 12, 0, cX, cY - candleH - 10, 22);
-        glowGrad.addColorStop(0, `rgba(255,215,0,${0.3 * flickerScale})`);
-        glowGrad.addColorStop(0.5, `rgba(255,100,0,${0.15 * flickerScale})`);
-        glowGrad.addColorStop(1, 'rgba(255,50,0,0)');
-        ctx.fillStyle = glowGrad;
-        ctx.beginPath();
-        ctx.ellipse(cX + flicker2, cY - candleH - 10, 22, 26, 0, 0, Math.PI * 2);
-        ctx.fill();
-
-        // Outer flame
-        ctx.fillStyle = `rgba(255,140,0,${0.85 * flickerScale})`;
-        ctx.beginPath();
-        ctx.moveTo(cX + flicker, cY - candleH - 22 * flickerScale);
-        ctx.bezierCurveTo(cX + 7 + flicker2, cY - candleH - 12, cX + 6, cY - candleH, cX, cY - candleH);
-        ctx.bezierCurveTo(cX - 6, cY - candleH, cX - 7 + flicker2, cY - candleH - 12, cX + flicker, cY - candleH - 22 * flickerScale);
-        ctx.fill();
-
-        // Inner flame
-        ctx.fillStyle = `rgba(255,230,100,${0.95 * flickerScale})`;
-        ctx.beginPath();
-        ctx.moveTo(cX + flicker * 0.5, cY - candleH - 16 * flickerScale);
-        ctx.bezierCurveTo(cX + 3.5, cY - candleH - 10, cX + 3.5, cY - candleH - 2, cX, cY - candleH);
-        ctx.bezierCurveTo(cX - 3.5, cY - candleH - 2, cX - 3.5, cY - candleH - 10, cX + flicker * 0.5, cY - candleH - 16 * flickerScale);
-        ctx.fill();
-
-        // Core flame
-        ctx.fillStyle = 'rgba(255,255,200,0.9)';
-        ctx.beginPath();
-        ctx.ellipse(cX, cY - candleH - 5, 2.5, 5, 0, 0, Math.PI * 2);
-        ctx.fill();
+      overlayCtx.restore();
+      for (let i = 0; i < 72; i++) {
+        const sx = (i * 137 + 50) % w;
+        const sy = (i * 97 + 30) % (h * 0.48);
+        const alpha = 0.2 + Math.sin(frameRef.current * 0.02 + i) * 0.16;
+        overlayCtx.fillStyle = `rgba(255,215,0,${alpha})`;
+        overlayCtx.beginPath();
+        overlayCtx.arc(sx, sy, i % 3 === 0 ? 1.1 : 0.65, 0, Math.PI * 2);
+        overlayCtx.fill();
       }
-
-      // Smoke particles
-      candle.smokeParticles.forEach((sp) => {
-        ctx.save();
-        ctx.globalAlpha = sp.opacity;
-        ctx.fillStyle = 'rgba(200,180,200,1)';
-        ctx.beginPath();
-        ctx.arc(sp.x, sp.y, sp.size, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.restore();
-      });
-    };
-
-    const updateSmoke = () => {
-      candlesRef.current.forEach((c) => {
-        if (c.extinguishing) {
-          c.smokeParticles.push({
-            x: c.x + (Math.random() - 0.5) * 4,
-            y: c.y - 30,
-            opacity: 0.5,
-            size: 2 + Math.random() * 3,
-            vx: (Math.random() - 0.5) * 0.8,
-            vy: -0.8 - Math.random() * 0.5,
-            life: 0,
-          });
-        }
-        c.smokeParticles = c.smokeParticles.filter((sp) => {
-          sp.x += sp.vx;
-          sp.y += sp.vy;
-          sp.size += 0.08;
-          sp.opacity -= 0.012;
-          sp.life++;
-          return sp.opacity > 0;
-        });
-      });
     };
 
     const updateConfetti = () => {
+      const w = overlay.offsetWidth;
+      const h = overlay.offsetHeight;
       confettiRef.current = confettiRef.current.filter((c) => {
         c.x += c.vx;
         c.y += c.vy;
@@ -328,77 +315,52 @@ export default function Scene1Cake({ onComplete }: Scene1CakeProps) {
         c.rotation += c.rotationSpeed;
         c.life++;
         c.opacity = Math.max(0, 1 - c.life / c.maxLife);
-        return c.life < c.maxLife && c.y < canvas.offsetHeight + 20;
+        return c.life < c.maxLife && c.y < h + 20 && c.opacity > 0;
       });
     };
 
     const drawConfetti = () => {
       confettiRef.current.forEach((c) => {
-        ctx.save();
-        ctx.globalAlpha = c.opacity;
-        ctx.translate(c.x, c.y);
-        ctx.rotate(c.rotation);
-        ctx.fillStyle = c.color;
-        ctx.fillRect(-c.size / 2, -c.size / 4, c.size, c.size / 2);
-        ctx.restore();
+        overlayCtx.save();
+        overlayCtx.globalAlpha = c.opacity;
+        overlayCtx.translate(c.x, c.y);
+        overlayCtx.rotate(c.rotation);
+        overlayCtx.fillStyle = c.color;
+        overlayCtx.fillRect(-c.size / 2, -c.size / 4, c.size, c.size / 2);
+        overlayCtx.restore();
       });
     };
 
-    const drawBackground = () => {
-      const w2 = canvas.offsetWidth;
-      const h2 = canvas.offsetHeight;
-      ctx.clearRect(0, 0, w2, h2);
-
-      const bgGrad = ctx.createRadialGradient(w2 / 2, h2 * 0.4, 0, w2 / 2, h2 * 0.4, w2 * 0.8);
-      bgGrad.addColorStop(0, '#1a0015');
-      bgGrad.addColorStop(0.5, '#0f0010');
-      bgGrad.addColorStop(1, '#0a0008');
-      ctx.fillStyle = bgGrad;
-      ctx.fillRect(0, 0, w2, h2);
-
-      // Stars
-      for (let i = 0; i < 60; i++) {
-        const sx = ((i * 137 + 50) % w2);
-        const sy = ((i * 97 + 30) % (h2 * 0.45));
-        const alpha = 0.2 + Math.sin(frameRef.current * 0.02 + i) * 0.15;
-        ctx.beginPath();
-        ctx.arc(sx, sy, 0.8, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(255,215,0,${alpha})`;
-        ctx.fill();
-      }
-    };
+    let celebrationNotifiedRef = false;
 
     const animate = () => {
+      if (disposedRef.current) return;
       frameRef.current++;
-      const w2 = canvas.offsetWidth;
-      const h2 = canvas.offsetHeight;
 
-      drawBackground();
-
-      const baseW = Math.min(w2 * 0.7, 430);
-      const upperW = baseW * 0.62;
-      const cakeTopY = h2 * 0.64 - 96 - 56;
-      const cx = w2 / 2;
-      const cy = h2 * 0.64;
-      const spin = frameRef.current * 0.007;
-      const scaleX = 0.5 + Math.abs(Math.cos(spin)) * 0.5;
-      const lightT = (Math.sin(spin) + 1) / 2;
-
-      ctx.save();
-      ctx.translate(cx, cy + Math.sin(spin * 2) * 6);
-      ctx.scale(scaleX, 1 + Math.sin(spin) * 0.04);
-      ctx.translate(-cx, -cy);
-      drawCake(lightT);
+      const t = frameRef.current * 0.0045;
+      cakePivot.rotation.y = t;
+      cakePivot.rotation.x = Math.sin(frameRef.current * 0.008) * 0.038;
 
       candlesRef.current.forEach((candle, idx) => {
-        const cX = w2 / 2 - upperW / 2 + upperW / (CANDLE_COUNT + 1) + idx * (upperW / (CANDLE_COUNT + 1));
-        candle.x = cX;
-        candle.y = cakeTopY + 10;
-        drawCandle(candle, idx, frameRef.current);
+        const fg = flamesRef.current[idx];
+        const pl = pointLightsRef.current[idx];
+        if (!fg || !pl) return;
+        const alive = candle.lit;
+        fg.visible = alive;
+        pl.visible = alive;
+        if (alive) {
+          const fk = 0.88 + Math.sin(frameRef.current * 0.18 + idx * 2.4) * 0.12;
+          fg.scale.set(fk * 1.04, fk, fk * 1.04);
+          pl.intensity = 0.4 + fk * 0.35;
+        }
       });
-      ctx.restore();
 
-      updateSmoke();
+      renderer.render(scene, camera);
+
+      const w = overlay.offsetWidth;
+      const h = overlay.offsetHeight;
+      overlayCtx.clearRect(0, 0, w, h);
+      drawBackgroundStars(w, h);
       updateConfetti();
       drawConfetti();
 
@@ -410,8 +372,12 @@ export default function Scene1Cake({ onComplete }: Scene1CakeProps) {
         setTimeout(() => {
           spawnConfetti();
           playConfettiBurstSound();
+          if (!celebrationNotifiedRef) {
+            celebrationNotifiedRef = true;
+            onCandlesBlown?.();
+          }
           setShowSuccess(true);
-        }, 800);
+        }, 680);
       }
 
       rafRef.current = requestAnimationFrame(animate);
@@ -420,16 +386,41 @@ export default function Scene1Cake({ onComplete }: Scene1CakeProps) {
     rafRef.current = requestAnimationFrame(animate);
 
     return () => {
+      disposedRef.current = true;
       cancelAnimationFrame(rafRef.current);
-      window.removeEventListener('resize', resize);
+      window.removeEventListener('resize', resizeThree);
+      window.removeEventListener('resize', resizeOverlay);
+      flamesRef.current = [];
+      pointLightsRef.current = [];
+      cakePivotRef.current = null;
+      sceneRef.current = null;
+      cameraRef.current = null;
+      if (rendererRef.current) {
+        rendererRef.current.dispose();
+        if (mount.contains(renderer.domElement)) {
+          mount.removeChild(renderer.domElement);
+        }
+        rendererRef.current = null;
+      }
+      scene.traverse((obj) => {
+        if (obj instanceof THREE.Mesh) {
+          obj.geometry.dispose();
+          const m = obj.material;
+          if (Array.isArray(m)) {
+            m.forEach((mat) => mat.dispose());
+          } else {
+            m.dispose();
+          }
+        }
+      });
     };
-  }, []);
+  }, [onCandlesBlown]);
 
   const spawnConfetti = () => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const w = canvas.offsetWidth;
-    const h = canvas.offsetHeight;
+    const overlay = canvasRef.current;
+    if (!overlay) return;
+    const w = overlay.offsetWidth;
+    const h = overlay.offsetHeight;
     for (let i = 0; i < 180; i++) {
       confettiRef.current.push({
         x: w / 2 + (Math.random() - 0.5) * w * 0.6,
@@ -529,14 +520,14 @@ export default function Scene1Cake({ onComplete }: Scene1CakeProps) {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
       micStreamRef.current = stream;
-      const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      const audioCtx = new AudioCtx();
+      const AudioCtor = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      const audioCtx = new AudioCtor();
       audioCtxRef.current = audioCtx;
       const analyser = audioCtx.createAnalyser();
       analyserRef.current = analyser;
       analyser.fftSize = 256;
-      const source = audioCtx.createMediaStreamSource(stream);
-      source.connect(analyser);
+      const src = audioCtx.createMediaStreamSource(stream);
+      src.connect(analyser);
       setMicEnabled(true);
 
       const data = new Uint8Array(analyser.frequencyBinCount);
@@ -578,25 +569,24 @@ export default function Scene1Cake({ onComplete }: Scene1CakeProps) {
   }, []);
 
   return (
-    <section className="scene-section flex flex-col items-center justify-center relative" style={{ minHeight: '100vh', background: 'var(--background)' }}>
+    <section className="scene-section relative flex flex-col items-center justify-center overflow-hidden" style={{ minHeight: '100vh', background: 'var(--background)' }}>
+      <div ref={threeMountRef} className="absolute inset-0 z-0" aria-hidden />
+
       <canvas
         ref={canvasRef}
-        className="absolute inset-0 w-full h-full"
-        style={{ display: 'block' }}
-        aria-label="Birthday cake with candles"
+        className="pointer-events-none absolute inset-0 z-[1] w-full h-full"
+        aria-label="Stars and confetti"
       />
 
-      {/* Cinematic overlay */}
-      <div className="cinematic-overlay absolute inset-0 pointer-events-none z-10" />
+      <div className="cinematic-overlay absolute inset-0 pointer-events-none z-[2]" />
 
-      {/* Content overlay — title top, controls anchored very low */}
       <div className="relative z-20 flex min-h-screen w-full flex-col px-4 text-center">
-        <h1 className="shrink-0 pt-8 md:pt-12 font-script text-5xl md:text-7xl lg:text-8xl leading-tight text-gradient-rose glow-text-rose px-2">
+        <h1 className="shrink-0 px-2 pt-8 font-script text-5xl leading-tight text-gradient-rose glow-text-rose md:pt-12 md:text-7xl lg:text-8xl">
           Make a wish, Nushie...
         </h1>
         {!showSuccess && (
           <p className="mt-4 shrink-0 text-sm opacity-85" style={{ color: 'var(--muted-foreground)' }}>
-            Blow out the candles — the mic turns on when you open this page ✨
+            blow out the candles Nush
           </p>
         )}
 
@@ -623,7 +613,7 @@ export default function Scene1Cake({ onComplete }: Scene1CakeProps) {
 
               {micEnabled && !allExtinguished && (
                 <div className="mx-auto w-full max-w-xs pb-2">
-                  <div className="h-2 rounded-full overflow-hidden shadow-inner" style={{ background: 'rgba(232,160,191,0.15)' }}>
+                  <div className="h-2 overflow-hidden rounded-full shadow-inner" style={{ background: 'rgba(232,160,191,0.15)' }}>
                     <div
                       className="h-full rounded-full transition-[width] duration-100 ease-out"
                       style={{
