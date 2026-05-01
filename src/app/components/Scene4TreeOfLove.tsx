@@ -101,7 +101,7 @@ const PICTURE_NODES: PictureNode[] = [
 ];
 
 // DOB: 2nd May 1999 (26 years)
-const DOB = new Date('1999-05-02T00:00:00');
+const DOB = new Date('2000-05-02T00:00:00');
 
 function useTimer() {
   const [elapsed, setElapsed] = useState({ years: 0, days: 0, hours: 0, minutes: 0, seconds: 0 });
