@@ -244,7 +244,7 @@ export default function Scene4TreeOfLove({ onComplete }: Scene4Props) {
             ))}
           </div>
           <p className="text-xs mt-2" style={{ color: 'rgba(255,215,0,0.6)' }}>
-            🎂 Birthday: 2nd May — counting every second ✨
+            My Precious Ardour 
           </p>
         </div>
       </div>
