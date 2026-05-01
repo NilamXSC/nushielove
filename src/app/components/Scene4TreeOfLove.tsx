@@ -69,7 +69,7 @@ const PICTURE_NODES: PictureNode[] = [
     id: 4,
     cx: 38, cy: 55,
     label: 'Late Nights',
-    note: 'Those late nights talking about everything and nothing — I never wanted them to end. You make time feel infinite.',
+    note: 'Those late nights talking about everything and nothing, I never wanted them to end. You make time feel infinite.',
     color: '#f48fb1',
     glowColor: 'rgba(244,143,177,0.7)',
     size: 26,
@@ -214,7 +214,7 @@ export default function Scene4TreeOfLove({ onComplete }: Scene4Props) {
           }}
         >
           <p className="text-xs tracking-widest uppercase mb-2" style={{ color: 'rgba(232,160,191,0.6)' }}>
-            She has blessed this earth for
+            You have blessed this earth for
           </p>
           <div className="flex items-center justify-center gap-3 flex-wrap">
             {[
