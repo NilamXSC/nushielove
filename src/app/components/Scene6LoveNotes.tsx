@@ -21,7 +21,7 @@ const LOVE_NOTES: LoveNote[] = [
   {
     id: 0,
     title: 'For Your Smile',
-    message: "Your smile is the most beautiful thing I've ever had the privilege of witnessing. It rearranges my entire world every single time.",
+    message: "Your smile is the most beautiful thing I've ever had the privilege of witnessing. It rearranges my entire world every single time Aaijan.",
     color: '#e8a0bf',
     glowColor: 'rgba(232,160,191,0.4)',
     icon: '😊',
@@ -30,7 +30,7 @@ const LOVE_NOTES: LoveNote[] = [
   {
     id: 1,
     title: 'For Your Kindness',
-    message: "The way you love people — effortlessly, genuinely, completely — it makes me want to be a better person every day.",
+    message: "The way you love people, effortlessly, genuinely, completely - it makes me want to be a better person every day Nush.",
     color: '#ffd700',
     glowColor: 'rgba(255,215,0,0.4)',
     icon: '💛',
@@ -48,7 +48,7 @@ const LOVE_NOTES: LoveNote[] = [
   {
     id: 3,
     title: 'For Your Soul',
-    message: "I don't know what I did to deserve someone like you. But I promise — every single day — to be worthy of your love.",
+    message: "There has never been a single day i didnt thank God for making us meet. So I promise, every single day - to be worthy of your love, My Sweet Nushie.",
     color: '#c2185b',
     glowColor: 'rgba(194,24,91,0.4)',
     icon: '🌸',
@@ -116,7 +116,6 @@ export default function Scene6LoveNotes({ secretUnlocked, openedMemories }: Scen
         {/* Header */}
         <div className="text-center">
           <div className="font-display text-xs tracking-[0.4em] uppercase mb-2" style={{ color: 'var(--primary)', opacity: 0.7 }}>
-            Scene VI — Final
           </div>
           <h2 className="font-display text-3xl md:text-5xl font-light text-gradient-rose">
             Love Notes for You
@@ -200,7 +199,7 @@ export default function Scene6LoveNotes({ secretUnlocked, openedMemories }: Scen
                   color: '#fff',
                 }}
               >
-                🔓 Reveal the Secret Message
+                Click To Reveal
               </button>
             ) : (
               <div className="flex flex-col items-center gap-4">
@@ -215,7 +214,7 @@ export default function Scene6LoveNotes({ secretUnlocked, openedMemories }: Scen
                     animation: 'secretReveal 1.5s ease-out forwards',
                   }}
                 >
-                  "No matter where life takes us… I'll always choose you. Happy Birthday, Nushie ❤️"
+                  "No matter where life takes us… I'll always choose you, If you make me wait, I will Wait. Happy Birthday, Nushie ❤️"
                 </p>
                 <div className="flex gap-2 mt-2">
                   {['✨', '💖', '🌹', '💖', '✨'].map((e, i) => (
