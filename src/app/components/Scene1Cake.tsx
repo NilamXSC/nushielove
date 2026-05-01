@@ -55,6 +55,7 @@ export default function Scene1Cake({ onComplete }: Scene1CakeProps) {
   const [micEnabled, setMicEnabled] = useState(false);
   const [micError, setMicError] = useState(false);
   const [blowing, setBlowing] = useState(false);
+  const [blowProgress, setBlowProgress] = useState(0);
   const [allExtinguished, setAllExtinguished] = useState(false);
   const extinguishingRef = useRef(false);
   const frameRef = useRef(0);
@@ -95,7 +96,8 @@ export default function Scene1Cake({ onComplete }: Scene1CakeProps) {
     };
     initCandles();
 
-    const drawCake = () => {
+    const drawCake = (lightT: number) => {
+      const lightBias = lightT - 0.5;
       const w2 = canvas.offsetWidth;
       const h2 = canvas.offsetHeight;
       const cx = w2 / 2;
@@ -145,6 +147,9 @@ export default function Scene1Cake({ onComplete }: Scene1CakeProps) {
       ctx.beginPath();
       ctx.roundRect(cx - baseW / 2, baseTop, baseW, baseH, [18, 18, 12, 12]);
       ctx.fill();
+      // Side depth / 3D edge
+      ctx.fillStyle = `rgba(${20 + lightT * 50}, ${4 + lightT * 20}, ${14 + lightT * 40}, 0.55)`;
+      ctx.fillRect(cx + baseW / 2 - 10, baseTop + 14, 8, baseH - 26);
 
       // Lower cake top rim
       const lowerRimGrad = ctx.createLinearGradient(cx - baseW / 2, baseTop - 14, cx + baseW / 2, baseTop + 12);
@@ -169,6 +174,8 @@ export default function Scene1Cake({ onComplete }: Scene1CakeProps) {
       ctx.beginPath();
       ctx.roundRect(cx - upperW / 2, upperTop, upperW, upperH, [14, 14, 8, 8]);
       ctx.fill();
+      ctx.fillStyle = `rgba(${38 + lightT * 55}, ${10 + lightT * 25}, ${22 + lightT * 35}, 0.5)`;
+      ctx.fillRect(cx + upperW / 2 - 8, upperTop + 10, 6, upperH - 18);
 
       // Upper cake rim + top
       const upperRimGrad = ctx.createLinearGradient(cx - upperW / 2, upperTop - 10, cx + upperW / 2, upperTop + 8);
@@ -196,6 +203,16 @@ export default function Scene1Cake({ onComplete }: Scene1CakeProps) {
       ctx.strokeStyle = 'rgba(232,160,191,0.35)';
       ctx.lineWidth = 1.5;
       ctx.stroke();
+      // Gloss highlight (moves with “rotation”)
+      const glossAlpha = 0.12 + lightT * 0.22;
+      const glossGrad = ctx.createLinearGradient(cx - baseW * 0.4, upperTop - 28, cx + baseW * 0.2, cy + 20);
+      glossGrad.addColorStop(0, `rgba(255,255,255,${glossAlpha})`);
+      glossGrad.addColorStop(0.45, `rgba(255,220,235,${glossAlpha * 0.4})`);
+      glossGrad.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = glossGrad;
+      ctx.beginPath();
+      ctx.ellipse(cx + lightBias * 36, cy - upperH * 0.55, upperW * 0.52, upperH + baseH * 0.52, lightBias * 0.12, 0, Math.PI * 2);
+      ctx.fill();
     };
 
     const drawCandle = (candle: Candle, idx: number, time: number) => {
@@ -357,11 +374,21 @@ export default function Scene1Cake({ onComplete }: Scene1CakeProps) {
       const h2 = canvas.offsetHeight;
 
       drawBackground();
-      drawCake();
 
       const baseW = Math.min(w2 * 0.7, 430);
       const upperW = baseW * 0.62;
       const cakeTopY = h2 * 0.64 - 96 - 56;
+      const cx = w2 / 2;
+      const cy = h2 * 0.64;
+      const spin = frameRef.current * 0.007;
+      const scaleX = 0.5 + Math.abs(Math.cos(spin)) * 0.5;
+      const lightT = (Math.sin(spin) + 1) / 2;
+
+      ctx.save();
+      ctx.translate(cx, cy + Math.sin(spin * 2) * 6);
+      ctx.scale(scaleX, 1 + Math.sin(spin) * 0.04);
+      ctx.translate(-cx, -cy);
+      drawCake(lightT);
 
       candlesRef.current.forEach((candle, idx) => {
         const cX = w2 / 2 - upperW / 2 + upperW / (CANDLE_COUNT + 1) + idx * (upperW / (CANDLE_COUNT + 1));
@@ -369,6 +396,7 @@ export default function Scene1Cake({ onComplete }: Scene1CakeProps) {
         candle.y = cakeTopY + 10;
         drawCandle(candle, idx, frameRef.current);
       });
+      ctx.restore();
 
       updateSmoke();
       updateConfetti();
@@ -518,6 +546,7 @@ export default function Scene1Cake({ onComplete }: Scene1CakeProps) {
         if (avg > 0.18) {
           setBlowing(true);
           blowTimerRef.current += 16;
+          setBlowProgress(Math.min(100, (blowTimerRef.current / 400) * 100));
           if (blowTimerRef.current > 400 && !blowActiveRef.current) {
             blowActiveRef.current = true;
             extinguishCandles();
@@ -525,6 +554,7 @@ export default function Scene1Cake({ onComplete }: Scene1CakeProps) {
         } else {
           setBlowing(false);
           blowTimerRef.current = Math.max(0, blowTimerRef.current - 8);
+          setBlowProgress(Math.min(100, (blowTimerRef.current / 400) * 100));
         }
         if (!extinguishingRef.current) {
           requestAnimationFrame(checkBlow);
@@ -535,6 +565,17 @@ export default function Scene1Cake({ onComplete }: Scene1CakeProps) {
       setMicError(true);
     }
   }, [extinguishCandles]);
+
+  useEffect(() => {
+    void enableMic();
+  }, [enableMic]);
+
+  useEffect(() => {
+    return () => {
+      micStreamRef.current?.getTracks().forEach((t) => t.stop());
+      audioCtxRef.current?.close().catch(() => {});
+    };
+  }, []);
 
   return (
     <section className="scene-section flex flex-col items-center justify-center relative" style={{ minHeight: '100vh', background: 'var(--background)' }}>
@@ -548,92 +589,84 @@ export default function Scene1Cake({ onComplete }: Scene1CakeProps) {
       {/* Cinematic overlay */}
       <div className="cinematic-overlay absolute inset-0 pointer-events-none z-10" />
 
-      {/* Content overlay */}
-      <div className="relative z-20 w-full h-full flex flex-col items-center justify-between px-4 py-8 md:py-10 text-center">
-        <h1 className="font-script text-5xl md:text-7xl lg:text-8xl leading-tight text-gradient-rose glow-text-rose">
+      {/* Content overlay — title top, controls anchored very low */}
+      <div className="relative z-20 flex min-h-screen w-full flex-col px-4 text-center">
+        <h1 className="shrink-0 pt-8 md:pt-12 font-script text-5xl md:text-7xl lg:text-8xl leading-tight text-gradient-rose glow-text-rose px-2">
           Make a wish, Nushie...
         </h1>
-
-        {/* Blow progress */}
-        {micEnabled && !allExtinguished && (
-          <div className="w-48 h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(232,160,191,0.15)' }}>
-            <div
-              className="h-full rounded-full transition-all duration-100"
-              style={{
-                width: `${Math.min(100, (blowTimerRef.current / 400) * 100)}%`,
-                background: 'linear-gradient(90deg, var(--primary), var(--gold))',
-              }}
-            />
-          </div>
-        )}
-
-        {blowing && !allExtinguished && (
-          <p className="text-sm" style={{ color: 'var(--muted-foreground)' }}>
-            💨 Keep blowing... almost there!
+        {!showSuccess && (
+          <p className="mt-4 shrink-0 text-sm opacity-85" style={{ color: 'var(--muted-foreground)' }}>
+            Blow out the candles — the mic turns on when you open this page ✨
           </p>
         )}
 
-        {/* Action buttons — two glassmorphic options */}
-        {!allExtinguished && (
-          <div className="flex flex-col gap-3 mt-auto mb-8 w-full max-w-xs">
-            <button
-              onClick={enableMic}
-              className="relative overflow-hidden rounded-full px-7 py-3.5 text-sm font-semibold transition-all duration-300 hover:scale-105 focus:outline-none"
-              style={{
-                background: 'rgba(232,160,191,0.12)',
-                backdropFilter: 'blur(16px)',
-                WebkitBackdropFilter: 'blur(16px)',
-                border: '1px solid rgba(232,160,191,0.45)',
-                color: '#fff',
-                boxShadow: '0 4px 24px rgba(232,160,191,0.18), inset 0 1px 0 rgba(255,255,255,0.15)',
-              }}
-            >
-              <span style={{ position: 'relative', zIndex: 1 }}>
-                {micEnabled ? '🎤 Mic Active — Blow Now!' : '🎤 Use mic to blow candles'}
-              </span>
-            </button>
+        <div className="flex min-h-0 flex-1 flex-col justify-end pb-32 sm:pb-36 md:pb-44 lg:pb-52">
+          {!showSuccess && (
+            <>
+              {micError && !allExtinguished && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMicError(false);
+                    void enableMic();
+                  }}
+                  className="mx-auto mb-4 max-w-sm rounded-full px-6 py-3 text-sm font-semibold outline-none ring-offset-2 transition hover:opacity-95 focus-visible:ring-2 focus-visible:ring-pink-300"
+                  style={{
+                    background: 'rgba(194,24,91,0.25)',
+                    border: '1px solid rgba(232,160,191,0.45)',
+                    color: '#fff',
+                  }}
+                >
+                  Microphone blocked — tap to allow
+                </button>
+              )}
 
-            <button
-              onClick={extinguishCandles}
-              className="relative overflow-hidden rounded-full px-7 py-3.5 text-sm font-semibold transition-all duration-300 hover:scale-105 focus:outline-none"
-              style={{
-                background: 'rgba(255,215,0,0.08)',
-                backdropFilter: 'blur(16px)',
-                WebkitBackdropFilter: 'blur(16px)',
-                border: '1px solid rgba(255,215,0,0.35)',
-                color: 'rgba(255,230,150,0.95)',
-                boxShadow: '0 4px 24px rgba(255,215,0,0.12), inset 0 1px 0 rgba(255,255,255,0.1)',
-              }}
-            >
-              <span style={{ position: 'relative', zIndex: 1 }}>
-                Blow candles 💨
-              </span>
-            </button>
-          </div>
-        )}
+              {micEnabled && !allExtinguished && (
+                <div className="mx-auto w-full max-w-xs pb-2">
+                  <div className="h-2 rounded-full overflow-hidden shadow-inner" style={{ background: 'rgba(232,160,191,0.15)' }}>
+                    <div
+                      className="h-full rounded-full transition-[width] duration-100 ease-out"
+                      style={{
+                        width: `${blowProgress}%`,
+                        background: 'linear-gradient(90deg, var(--primary), var(--gold))',
+                        boxShadow: '0 0 12px rgba(255,215,0,0.35)',
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
 
-        {/* Success state */}
-        {showSuccess && (
-          <div className="flex flex-col items-center gap-4 mt-2">
-            <div className="font-display text-2xl md:text-3xl text-gradient-gold glow-text-gold">
-              ✨ Your wish is written in the stars ✨
+              {blowing && !allExtinguished && (
+                <p className="mx-auto pb-3 text-sm font-medium" style={{ color: 'rgba(232,160,191,0.95)' }}>
+                  Keep blowing…
+                </p>
+              )}
+            </>
+          )}
+
+          {showSuccess && (
+            <div className="flex flex-col items-center gap-5">
+              <div className="font-display text-2xl md:text-3xl text-gradient-gold glow-text-gold">
+                ✨ Your wish is written in the stars ✨
+              </div>
+              <button
+                type="button"
+                onClick={onComplete}
+                className="relative overflow-hidden rounded-full px-8 py-3.5 text-sm font-semibold transition-all duration-500 hover:scale-105 focus:outline-none"
+                style={{
+                  background: 'rgba(194,24,91,0.18)',
+                  backdropFilter: 'blur(18px)',
+                  WebkitBackdropFilter: 'blur(18px)',
+                  border: '1px solid rgba(232,160,191,0.5)',
+                  color: '#fff',
+                  boxShadow: '0 4px 32px rgba(194,24,91,0.3), inset 0 1px 0 rgba(255,255,255,0.2)',
+                }}
+              >
+                Continue the journey
+              </button>
             </div>
-            <button
-              onClick={onComplete}
-              className="relative overflow-hidden rounded-full px-8 py-3.5 text-sm font-semibold transition-all duration-500 hover:scale-105 focus:outline-none"
-              style={{
-                background: 'rgba(194,24,91,0.18)',
-                backdropFilter: 'blur(18px)',
-                WebkitBackdropFilter: 'blur(18px)',
-                border: '1px solid rgba(232,160,191,0.5)',
-                color: '#fff',
-                boxShadow: '0 4px 32px rgba(194,24,91,0.3), inset 0 1px 0 rgba(255,255,255,0.2)',
-              }}
-            >
-              Continue the journey
-            </button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </section>
   );
